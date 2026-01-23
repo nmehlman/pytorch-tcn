@@ -29,10 +29,10 @@ from pytorch_tcn.buffer import BufferIO
 
 class FiLM(nn.Module):
 
-    def __init__(self, cond_dim: int, num_channels: int):
+    def __init__(self, conditioning_dim: int, num_channels: int):
         super(FiLM, self).__init__() 
-        self.proj_gamma = nn.Linear(cond_dim, num_channels)
-        self.proj_beta = nn.Linear(cond_dim, num_channels)
+        self.proj_gamma = nn.Linear(conditioning_dim, num_channels)
+        self.proj_beta = nn.Linear(conditioning_dim, num_channels)
         
         # Initialize weights and biases to zero
         nn.init.zeros_(self.proj_gamma.weight)
@@ -605,7 +605,7 @@ class TCN(BaseTCN):
             out_channels = num_channels[i]
 
             if conditioning_dim is not None:
-                film_layer = FiLM( cond_dim=conditioning_dim, num_channels=out_channels )
+                film_layer = FiLM( conditioning_dim=conditioning_dim, num_channels=out_channels )
             else:
                 film_layer = nn.Identity()
 
