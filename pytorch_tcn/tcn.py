@@ -27,6 +27,27 @@ from pytorch_tcn.pad import TemporalPad1d
 from pytorch_tcn.buffer import BufferIO
 
 
+class FiLM(nn.Module):
+
+    def __init__(self, cond_dim: int, num_channels: int):
+        super(FiLM, self).__init__() 
+        self.proj_gamma = nn.Linear(cond_dim, num_channels)
+        self.proj_beta = nn.Linear(cond_dim, num_channels)
+        
+        # Initialize weights and biases to zero
+        nn.init.zeros_(self.proj_gamma.weight)
+        nn.init.zeros_(self.proj_gamma.bias)
+        nn.init.zeros_(self.proj_beta.weight)
+        nn.init.zeros_(self.proj_beta.bias)
+        
+    def forward(self, x: torch.Tensor, conditioning: torch.Tensor):
+        # x: (B, C, T)
+        gamma = self.proj_gamma(conditioning).unsqueeze(2)
+        gamma = 0.1 * torch.tanh(gamma) # avoids large changes
+        beta = self.proj_beta(conditioning).unsqueeze(2)
+        beta = 0.1 * torch.tanh(beta) # avoids large changes
+        return (1 + gamma) * x + beta
+
 activation_fn = dict(
     relu=nn.ReLU,
     tanh=nn.Tanh,
@@ -242,7 +263,8 @@ class TemporalBlock(BaseTCN):
             kerner_initializer,
             embedding_shapes,
             embedding_mode,
-            use_gate
+            use_gate,
+            film_layer = None
             ):
         super(TemporalBlock, self).__init__()
         self.use_norm = use_norm
@@ -252,6 +274,7 @@ class TemporalBlock(BaseTCN):
         self.embedding_mode = embedding_mode
         self.use_gate = use_gate
         self.causal = causal
+        self.film_layer = film_layer
 
         if self.use_gate:
             conv1d_n_outputs = 2 * n_outputs
@@ -418,6 +441,7 @@ class TemporalBlock(BaseTCN):
             x,
             embeddings,
             inference,
+            conditioning=None,
             in_buffers=None,
             ):
         
@@ -437,12 +461,16 @@ class TemporalBlock(BaseTCN):
 
         out = self.conv2(out, inference=inference, in_buffer = in_buffer_2)
         out = self.apply_norm( self.norm2, out )
+
+        # Film here
+        if conditioning is not None and self.film_layer is not None:
+            out = self.film_layer( out, conditioning )
+
         out = self.activation2(out)
         out = self.dropout2(out)
 
         res = x if self.downsample is None else self.downsample(x)
         return self.activation_final(out + res), out
-
 
 
 class TCN(BaseTCN):
@@ -466,6 +494,7 @@ class TCN(BaseTCN):
             lookahead=0,
             output_projection: Optional[ int ] = None,
             output_activation: Optional[ str ] = None,
+            conditioning_dim: Optional[ int ] = None,
             ):
         super(TCN, self).__init__()
 
@@ -575,6 +604,11 @@ class TCN(BaseTCN):
             in_channels = num_inputs if i == 0 else num_channels[i-1]
             out_channels = num_channels[i]
 
+            if conditioning_dim is not None:
+                film_layer = FiLM( cond_dim=conditioning_dim, num_channels=out_channels )
+            else:
+                film_layer = nn.Identity()
+
             layers += [
                 TemporalBlock(
                     n_inputs=in_channels,
@@ -589,7 +623,8 @@ class TCN(BaseTCN):
                     kerner_initializer=self.kernel_initializer,
                     embedding_shapes=self.embedding_shapes,
                     embedding_mode=self.embedding_mode,
-                    use_gate=self.use_gate
+                    use_gate=self.use_gate,
+                    film_layer=film_layer,
                     )
                 ]
 
@@ -632,6 +667,7 @@ class TCN(BaseTCN):
     def forward(
             self,
             x,
+            conditioning: Optional[ torch.Tensor ] = None,
             embeddings=None,
             inference=False,
             in_buffers=None,
@@ -662,14 +698,17 @@ class TCN(BaseTCN):
                     embeddings=embeddings,
                     inference=inference,
                     in_buffers=layer_in_buffers,
+                    conditioning=conditioning,
                     )
                 if self.downsample_skip_connection[ index ] is not None:
                     skip_out = self.downsample_skip_connection[ index ]( skip_out )
                 if index < len( self.network ) - 1:
                     skip_connections.append( skip_out )
+                
             skip_connections.append( x )
             x = torch.stack( skip_connections, dim=0 ).sum( dim=0 )
             x = self.activation_skip_out( x )
+
         else:
             for index, layer in enumerate( self.network ):
                 
@@ -683,7 +722,9 @@ class TCN(BaseTCN):
                     embeddings=embeddings,
                     inference=inference,
                     in_buffers=layer_in_buffers,
+                    conditioning=conditioning,
                     )
+
         if self.projection_out is not None:
             x = self.projection_out( x )
         if self.activation_out is not None:

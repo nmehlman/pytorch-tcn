@@ -164,3 +164,4 @@ cython_debug/
 
 # VSCode
 .vscode
+pytorch_tcn/tcn.py
