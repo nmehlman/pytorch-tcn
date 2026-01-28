@@ -495,6 +495,7 @@ class TCN(BaseTCN):
             output_projection: Optional[ int ] = None,
             output_activation: Optional[ str ] = None,
             conditioning_dim: Optional[ int ] = None,
+            disable_final_activation: bool = False,
             ):
         super(TCN, self).__init__()
 
@@ -609,7 +610,7 @@ class TCN(BaseTCN):
             else:
                 film_layer = nn.Identity()
 
-            if i == num_levels - 1:
+            if i == num_levels - 1 and disable_final_activation:
                 # No activation in the last layer
                 activation = 'linear'
             else:
