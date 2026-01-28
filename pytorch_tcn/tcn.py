@@ -58,6 +58,7 @@ activation_fn = dict(
     selu=nn.SELU,
     softmax=nn.Softmax,
     log_softmax=nn.LogSoftmax,
+    linear=nn.Identity,
 )
 
 kernel_init_fn = dict(
