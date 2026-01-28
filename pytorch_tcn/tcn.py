@@ -609,6 +609,12 @@ class TCN(BaseTCN):
             else:
                 film_layer = nn.Identity()
 
+            if i == num_levels - 1:
+                # No activation in the last layer
+                activation = 'linear'
+            else:
+                activation = self.activation
+
             layers += [
                 TemporalBlock(
                     n_inputs=in_channels,
